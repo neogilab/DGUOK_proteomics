@@ -1,0 +1,215 @@
+---
+title: "Bublle plot"
+output: html_notebook
+---
+
+# Parse IPA output
+
+ipa <- read.delim("/home/mikov/Desktop/Proteomics/data/IPA/IPA pathway KI_salmon_2.txt")
+ipa <- read.delim("/home/mikov/Desktop/Proteomics/data/IPA/IPA pathway Mayo_2.txt")
+
+ipa <- read.delim("data/IPA/NormDE_Limma_12M.txt")
+ipa <- read.delim("data/IPA/TMT_EdgeR_12M.txt")
+ipa <- read.delim("data/IPA/TMT_EdgeR_2M.txt")
+
+ipa <- read.delim("data/IPA_output/2M_liver_IPA_output.txt")
+ipa <- read.delim("data/IPA_output/12_M_liver_IPA_output.txt")
+
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+name_ana <- "dGK_mice_2M_liver"
+ipa <- read.delim("data/IPA_output/2M_liver_IPA_output.txt")
+```
+
+```{r}
+ipa <-ipa[c(1, 2, 3, 4, 6, 7, 10, 12, 23, 24, 25),]
+ipa$nb_genes <-NA
+```
+
+```{r}
+for (i in 1:nrow(ipa)){
+  x <- paste0(ipa$Molecules[i], collapse=" ")
+  y <- as.list(strsplit(x, ",")[[1]])
+  ipa[i,6] <- length(y)
+}
+```
+
+
+# attribute up or down according to logFC
+
+
+
+# preparation of cytoscape input
+# table : nodes
+# node + type (gene / term)
+
+# table: edges :
+# gene + term x
+
+```{r}
+top_ipa <- ipa[complete.cases(ipa$Ingenuity.Canonical.Pathways),]
+```
+
+
+```{r}
+table_edges <- data.frame(Node_1 = NA, Node_2 = NA, Type = NA)
+```
+
+
+```{r}
+for (i in 1:nrow(top_ipa)){
+  x <- paste0(top_ipa$Molecules[i], collapse=" ")
+  y <- as.list(strsplit(x, ",")[[1]])
+  path <- rep(top_ipa[i, 1], length(y))
+  a <-do.call(rbind.data.frame, y)
+  names(a)<- "Node_1"
+  a <-cbind(a, path, path)
+  names(a)[2]<- "Node_2"
+  names(a)[3]<- "Type"
+  table_edges <-rbind(table_edges, a)
+}
+```
+
+```{r}
+head(table_edges)
+table_edges[1] <- mutate_all(table_edges[1], funs(toupper))
+head(table_edges)
+```
+
+```{r}
+table_nodes <- data.frame(Items = NA, Type = NA)
+```
+
+table_nodes[-1] <- mutate_all(table_nodes[-1], funs(toupper))
+table_edges[c(-2, -3)] <- mutate_all(table_edges[c(-2, -3)], funs(toupper))
+
+```{r}
+path <- top_ipa$Ingenuity.Canonical.Pathways
+genes <- table_edges$Node_1
+genes <- genes[!duplicated(genes)]
+
+
+
+table_path <- data.frame(Item = path, Type = "pathway")
+table_genes <- data.frame(Item = genes, Type = "gene")
+table_genes <- mutate_all(table_genes, funs(toupper))
+
+table_nodes<- rbind(table_path, table_genes)
+```
+
+```{r}
+table_nodes <- table_nodes[complete.cases(table_nodes),]
+table_edges <- table_edges[complete.cases(table_edges),]
+```
+
+```{r}
+dge <- read.delim("results/liver_2M_u/liver_2M_u_Filt_DGE_table.txt")
+dge <- select(dge, Gene_name, logFC, adj.P.Val)
+
+dge$Gene_name <- as.character(dge$Gene_name)
+dge$Gene_name <- toupper(dge$Gene_name)
+names(dge)[1] <- "Node_1"
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+names(table_nodes)[1] <-  "Node_1"
+names(table_edges) <-  c("Node_1", "Node_2", "Group")
+```
+
+```{r}
+table_nodes <- merge(table_nodes, table_edges[,c(1,3)], by = "Node_1")
+head(table_nodes)
+```
+```{r}
+table_nodes <- merge(table_nodes, dge, by = "Node_1", all.x = TRUE)
+```
+
+```{r}
+pathway <- data.frame(Node_1 = ipa$Ingenuity.Canonical.Pathways,
+                      Type = "PATH",
+                      Group = ipa$Ingenuity.Canonical.Pathways)
+```
+
+```{r}
+table_nodes <- rbind(table_nodes, pathway)
+```
+
+```{r}
+head(table_nodes)
+```
+
+```{r}
+path_nodes <- paste0("results/IPA/", name_ana, "_table_nodes.txt")
+write.table(table_nodes, file = path_nodes,sep = "\t",
+            row.names = TRUE, col.names = NA)
+```
+
+# NB : merge string and table edge
+
+
+/home/mikov/Desktop/Proteomics/data/string/string_interactions_2M_TMM_2.tsv
+/home/mikov/Desktop/Proteomics/data/string/string_interactions_12M_TMM_2.tsv
+/home/mikov/Desktop/Proteomics/data/string/string_interactions_normDE_limma_M12_2.csv
+/home/mikov/Desktop/Proteomics/results/IPA/KI_salmon/string_interactions.tsv
+/home/mikov/Desktop/Proteomics/results/IPA/Mayo/string_interactions(1).tsv
+
+/home/mikov/Desktop/dGK-mice/data/STRING/2M_dk_mice.tsv
+/home/mikov/Desktop/dGK-mice/results/IPA/2M_string_interactions-1.tsv
+
+```{r}
+string_2M <- read.delim("results/IPA/string_interactions_2M_2.tsv")
+string_12M <- read.delim("/home/mikov/Desktop/dGK-mice/data/STRING/12M_dk_mice.tsv")
+```
+
+
+
+```{r}
+library(dplyr)
+string <- select(string_2M, X.node1, node2, node1_string_internal_id)
+names(string) <-  c("Node_1", "Node_2", "Group") 
+string$Group <- "gene-gene"
+```
+
+```{r}
+string$Node_1 <- toupper(string$Node_1)
+string$Node_2<- toupper(string$Node_2)
+```
+
+```{r}
+table_edges <- rbind(string, table_edges)
+```
+
+```{r}
+head(table_edges)
+```
+
+
+# save everyone
+```{r}
+path_edges <- paste0("results/IPA/", name_ana, "_table_edges.txt")
+
+write.table(table_edges, file = path_edges,sep = "\t",
+            row.names = TRUE, col.names = NA)
+
+```
+
+# remove double comma
+```{r}
+system("sed 's/\"//g' results/IPA/dGK_mice_2M_liver_table_edges.txt > results/IPA/dGK_mice_2M_liver_table_edges_2.txt")
+```
+
+```{r}
+system("sed 's/\"//g' results/IPA/dGK_mice_2M_liver_table_nodes.txt > results/IPA/dGK_mice_2M_liver_table_nodes_2.txt")
+```
+
+
+
+

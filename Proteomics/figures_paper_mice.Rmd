@@ -1,0 +1,82 @@
+---
+title: "Figures_paper"
+output: html_notebook
+---
+
+
+## normalized curves
+
+/home/mikov/Desktop/dGK-mice/normalization/liver_2M_u/liver_2M_u/Quantile-normalized.txt
+/home/mikov/Desktop/dGK-mice/normalization/liver_12M_u/liver_12M_u/Quantile-normalized.txt
+
+```{r}
+hist_1 <- read.delim("/home/mikov/Desktop/dGK-mice/normalization/liver_2M_u/liver_2M_u/Quantile-normalized.txt")
+hist_2 <- read.delim("/home/mikov/Desktop/dGK-mice/normalization/liver_12M_u/liver_12M_u/Quantile-normalized.txt")
+```
+
+
+```{r}
+pca_data_hist1 <- data.frame(t(hist_1))
+```
+
+```{r}
+data <- pca_data_hist1
+data$group <- rownames(data)
+```
+
+```{r}
+# transform data for ggplots
+dat.m <- melt(data, id.vars = "group")
+dat.m$type<- "2M"
+
+ggplot(dat.m, aes(group, value, fill = condition)) + geom_boxplot() + 
+  theme_gray(base_size = 14)+ theme(axis.text.x = element_text(angle = 90))
+
+path_fig <- paste0("results/", name_ana, 
+                   "/figures/", name_ana, "_boxplot_after_norm.pdf")
+dev.copy(pdf,path_fig)
+dev.off()
+
+```
+
+
+```{r}
+pca_data_hist2 <- data.frame(t(hist_2))
+```
+
+```{r}
+data_2 <- pca_data_hist2
+data_2$group <- rownames(data_2)
+```
+
+```{r}
+# transform data for ggplots
+dat.m_2 <- melt(data_2, id.vars = "group")
+dat.m_2$type<- "12M"
+```
+
+
+```{r}
+colnames(dat.m)
+colnames(dat.m_2)
+```
+
+```{r}
+hist <- rbind(dat.m, dat.m_2)
+```
+
+
+```{r}
+ggplot(hist, aes(x = value, fill = type)) +
+  geom_density(alpha = .3) #alpha used for filling the density
+
+path_fig <- paste0("results/12_2_M_liver/distribution_after_norm.pdf")
+dev.copy(pdf,path_fig)
+dev.off()
+```
+
+## double volcano
+
+```{r}
+
+```

@@ -1,0 +1,68 @@
+---
+title: "Check proteins"
+output: html_notebook
+---
+
+
+```{r}
+library(xlsx)
+```
+
+/home/ujjwal/Desktop/Code-PHD/dGK-mice/mice_proteins_check.xlsx
+
+```{r}
+proteins_2M <- read.xlsx("check_mice.xlsx", 1)
+
+proteins_12M <- read.xlsx("check_mice.xlsx", 2)
+```
+
+## convert to uniprot
+
+
+processed_data/liver_12M_u_data_filt_norm.txt
+
+```{r}
+data_2M <- read.delim("processed_data/liver_2M_u_data_filt_norm.txt")
+data_12M <- read.delim("processed_data/liver_12M_u_data_filt_norm.txt")
+```
+
+
+```{r}
+annotationInfo <- read.delim("data/Mouse_annotation_uniprot_Gene_name.txt")
+```
+
+```{r}
+proteins_12M_2 <- merge(proteins_12M, annotationInfo, by = "Gene_name", all.x = TRUE)
+proteins_2M_2 <- merge(proteins_2M, annotationInfo, by = "Gene_name", all.x = TRUE)
+```
+
+```{r}
+proteins_12M$conversion.uniprot <- ifelse(is.na(proteins_12M$Accession), "no", "yes")
+proteins_2M$conversion.uniprot <- ifelse(is.na(proteins_2M$Accession), "no", "yes")
+```
+
+```{r}
+proteins_12M$detected <- ifelse(proteins_12M$Accession %in% data_12M$X, "yes", "no")
+proteins_2M$detected <- ifelse(proteins_2M$Accession %in% data_2M$X, "yes", "no")
+```
+
+```{r}
+data_12 <- data_12M[data_12M$X %in% proteins_12M$Accession, ]
+data_2 <- data_2M[data_2M$X %in% proteins_2M$Accession, ]
+```
+
+```{r}
+proteins_12M_2$DGE <- NULL
+proteins_2M_2$DGE <- NULL
+```
+
+```{r}
+
+```
+
+```{r}
+write.xlsx(proteins_12M, "check_mice.xlsx")
+write.xlsx(proteins_2M, "check_mice_2.xlsx")
+```
+
+

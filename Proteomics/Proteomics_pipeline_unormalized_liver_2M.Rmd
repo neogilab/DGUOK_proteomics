@@ -1,0 +1,463 @@
+---
+title: "Proteomics pipeline for comparing two conditions"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Overview and objectives
+
+The aim of my project is to run a proteomics pipeline in order to identify significant enriched pathway in case compared to control cases. Several comparisons can be made for the same project. Data will be filtered, normalysed using NormalyserDE and batch effect will be removed using sva package. Differential gene expression analysis will be performed using limma package and data represented using volcano plot and heatmap. Feature selection will be performed using RandomForest. 
+
+# Data input and output
+
+# Outline:
+##  1) Parsing input
+##  2) Home-made filtration and Merging
+##  3) Normalizatrion
+##  4) Differential Expression Analysis
+##  5) Clustering
+
+## Load libraries
+```{r}
+library(sva)
+library(dplyr)
+#library(NormalyzerDE)
+library(ggplot2)
+library(ggfortify)
+library(ggrepel)
+library(tidyr)
+library(limma)
+library(xlsx)
+library(gplots)
+library(RColorBrewer)
+library(gridExtra)
+```
+
+
+/home/mikov/Desktop/dGK-mice/data/Liver_2M/20190412_F_06_Ujjwal_Liver_26-30.csv
+/home/mikov/Desktop/dGK-mice/data/Liver_2M/informations_liver_2M.txt
+
+```{r}
+#define number of samples per condition
+nb_samples_c1 <- 2
+nb_samples_c2 <- 3
+# define conditions
+c1 <- "WT"
+c2 <- "KO"
+
+#define name of analysis
+name_ana <- "liver_2M_u"
+input <- "data/Liver_2M/20190412_F_06_Ujjwal_Liver_26-30.csv"
+info <- "data/Liver_2M/informations_liver_2M.txt"
+annotationInfo <- read.delim("data/Mouse_annotation_uniprot_Gene_name.txt")
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+#' Parse proteomics dataframe input to extract abundances
+#'
+#' @param frame dataframe containing proteim abundances
+#' @param info dataframe containing names of samples and condition
+#' @return dataframe containing uniprot ID and protein abundances
+parse_frame <- function(frame, info){
+    #import files
+    r <- read.csv(frame)
+    r_info <- read.delim(info)
+    rownames(r) <- r$Accession
+    # point names of samples to vector
+    samples <- pull(r_info, Sample)
+    #extract columns corresponding to names of samples
+    names.use <- names(r)[(names(r) %in% samples)]
+    #print(names.use)
+    subset <- r[, names.use]
+    return(subset)
+}
+
+subset <- parse_frame(input, info)
+
+```
+
+##  2) Home-made filtration and Merging
+
+```{r}
+#' Remove lines with only NA
+#'
+#' @param frame dataframe containing proteim abundances
+#' @return dataframe without lines containing only NA
+filter_na <- function(frame){
+    frame$Accession <-NULL
+    del <- frame[!rowSums(is.na(frame)) != ncol(frame), ]
+    frame <- frame[rowSums(is.na(frame)) != ncol(frame), ]
+    print(nrow(del))
+    return(frame)
+}
+
+subset[subset==''] <- NA
+subset <- filter_na(subset)
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+#' Rename samples depending on condition
+#'
+#' @param frame filtered dataframe containing proteim abundances
+#' @param info dataframe containing names of samples and condition
+#' @return dataframe containing uniprot ID and protein abundances
+rename_frame <- function(filt_frame, info, c1, c2){
+  info <- read.delim(info)
+  filt_frame <- data.frame(t(subset))
+  filt_frame$Sample <- rownames(filt_frame)
+  filt_frame <- merge(info, filt_frame, by = "Sample")
+  filt_frame$Sample <- NULL
+  filt_frame$condition <- NULL
+  rownames(filt_frame) <- filt_frame$name
+  filt_frame$names <- NULL
+  filt_frame <- data.frame(t(filt_frame))
+  filt_frame <- select(filt_frame, starts_with(c1), starts_with(c2))
+  return(filt_frame)
+}
+
+r <- rename_frame(subset, info, c1, c2)
+```
+
+
+```{r}
+pca_data <- data.frame(group = as.factor(c(rep(c1, nb_samples_c1), rep(c2,nb_samples_c2))), 
+                       t(as.matrix(r)))
+pca_data[is.na(pca_data)] <- 0
+```
+
+```{r}
+pca <- prcomp(pca_data[,-1])
+```
+
+```{r}
+library(ggfortify)
+```
+
+```{r}
+autoplot(pca, data = pca_data, colour = 'group', size= 6)+ 
+  scale_color_manual(values = c("#e67e22","#f1c40f")) 
+```
+
+##  3) Normalizatrion
+```{r}
+# preparation of design matrix 
+design_table <-data.frame(sample = colnames(r), 
+                          group = c(rep(c1,nb_samples_c1),rep(c2,nb_samples_c2)))
+
+path_design <- paste0("normalization/",
+                      name_ana, "_design_matrix.tsv")
+path_data <- paste0("normalization/",
+                    name_ana, "_data_matrix.tsv")
+
+write.table(design_table, 
+            file = path_design, 
+            sep = "\t",
+            quote = FALSE, row.names=FALSE)
+
+### data matrix
+write.table(r, 
+            file = path_data, 
+            sep = "\t",
+            quote = FALSE, row.names=FALSE)
+```
+
+
+#normalyzerDE
+```{r}
+path_norm <-paste0("normalization/",
+                   name_ana, "/", name_ana,"/Quantile-normalized.txt")
+
+r_norm <- read.delim(path_norm)
+rownames(r_norm)<-rownames(r)
+```
+
+
+```{r}
+path_norm <-paste0("processed_data/", name_ana,"_data_filt_norm.txt")
+
+write.table(r_norm, file =path_norm, sep = "\t", row.names = TRUE, 
+            col.names = NA)
+```
+
+
+```{r}
+pca_data <- data.frame(group = c(rep(c1, nb_samples_c1), rep(c2,nb_samples_c2)), 
+                       t(as.matrix(r_norm)))
+pca_data[is.na(pca_data)] <- 0
+
+```
+
+```{r}
+pca <- prcomp(pca_data[,-1])
+```
+
+```{r}
+data <- pca_data[, c(-1)]
+data$group <- rownames(data)
+```
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+# transform data for ggplots
+dat.m <- data %>% gather(variable, value, -group)
+
+dat.m$condition <- c(rep(c1, nb_samples_c1), rep(c2, nb_samples_c2))
+p <-ggplot(dat.m, aes(group, value, fill = condition)) + geom_boxplot() + 
+  theme_gray(base_size = 14)+ theme(axis.text.x = element_text(angle = 90))
+
+path_fig <- paste0("results/", name_ana, 
+                   "/figures/", name_ana, "_boxplot_after_norm.pdf")
+
+pdf(path_fig,width=6.69, height=6.69)
+grid.arrange(p, p, ncol = 1)
+dev.off()
+
+#dev.copy(pdf,path_fig)
+#dev.off()
+
+
+```
+
+```{r}
+ggplot(dat.m, aes(value)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white", binwidth = 0.5)+
+ geom_density(alpha=.2, fill="#FF6666")
+
+path_fig <- paste0("results/", name_ana, 
+                   "/figures/", name_ana, "_distribution_after_norm.pdf")
+dev.copy(pdf,path_fig)
+dev.off()
+
+```
+
+```{r}
+autoplot(pca, data = pca_data, colour = 'group', size= 6)+ 
+  scale_color_manual(values = c("#e67e22","#f1c40f","#16a085", "#c0392b")) 
+
+path_fig <- paste0("results/", name_ana, 
+                   "/figures/", name_ana, "_PCA_after_norm.pdf")
+dev.copy(pdf,path_fig)
+dev.off()
+```
+```{r}
+r_norm[is.na(r_norm)] <- 0
+```
+
+
+## 6) Differential gene expression
+
+```{r}
+#  4) Differential Expression Analysis
+## limma
+## pvalue = 0.05
+## adjustment Benjamini-Hotschberg
+
+# construct of groups for model design
+groups <- factor(c(rep(c1, nb_samples_c1), rep(c2, nb_samples_c2)))
+design <- model.matrix( ~ 0 + groups)
+colnames(design) <- levels(groups) # change colnames to KO and WT
+
+
+# Fit linear model : estimate fold change and standard errors
+fit <- lmFit(r_norm, design)
+cont.matrix <- makeContrasts(WTvsKO=KO - WT,levels=design)
+fit.cont <- contrasts.fit(fit, cont.matrix)
+# Execute eBayes to obtain attenuated t statistics(smoothing standard errors)
+fit.cont <- eBayes(fit.cont)
+top_table <- topTable(fit.cont, adjust="BH", n = Inf, sort.by = "P")
+
+path_table <- paste0("results/", name_ana, "/", 
+                     name_ana, "_DGE_table.txt")
+print(path_table)
+write.table(top_table, file =path_table, sep = "\t", row.names = TRUE, 
+            col.names = NA)
+```
+
+```{r}
+top_table <- top_table[complete.cases(top_table),]
+```
+
+```{r}
+# select proteins with pvalue < 0.05
+DF_top_table <-top_table[top_table$adj.P.Val < 0.05, ]
+```
+
+
+```{r}
+
+top_table$Accession <- rownames(top_table)
+
+data <-merge(top_table, annotationInfo, by = "Accession")
+
+# prepare IPA input
+data_IPA <-select(data, Accession, logFC, adj.P.Val)
+
+path_IPA <- paste0("results/", name_ana,
+                   "_IPA_input.xlsx")
+
+write.xlsx(data_IPA, file = path_IPA,
+           sheetName = "Proteomics_DGE_Aging_mice_IPA_input", 
+           col.names = TRUE, row.names = FALSE, append = FALSE)
+
+
+data <- select(data, Gene_name, logFC, adj.P.Val)
+```
+
+```{r}
+pca_data[is.na(pca_data)] <- 0
+```
+
+
+```{r}
+top_genes <- data[(data$logFC > 8) | (data$logFC < - 8), ]
+top_genes <- top_genes[(top_genes$adj.P.Val < 0.05), ]
+top_genes <- top_genes[complete.cases(top_genes),]
+dim(top_genes)
+# remove label for proteins with  - 1 < logFoldChange < 1
+for (nb_row in 1:nrow(data)){
+  if (data[nb_row, 1] %in% top_genes$Gene_name){
+    }else{
+      data[nb_row, 1] <- NA
+  }
+}
+```
+
+
+```{r}
+ggplot(data, aes(x=logFC, y=-log10(adj.P.Val))) + 
+  geom_point(data=subset(data, adj.P.Val<.05 & logFC < 0),aes(x=logFC,y=-log10(adj.P.Val),
+  size=abs(logFC),color=logFC))+scale_color_gradient(high = "#4ca64c", low = "#003300") + 
+  geom_point(data=subset(data, adj.P.Val<.05 & logFC > 0),aes(x=logFC,y=-log10(adj.P.Val),
+  size=abs(logFC),fill=logFC),shape=21,color="#ff5d5d") + 
+  scale_fill_gradient(low = "#ff4c4c", high = "#7f0000")+ 
+  geom_point(data=subset(data, adj.P.Val>=.05),aes(x=logFC,y=-log10(adj.P.Val),size=abs(logFC)),
+             color="grey") +
+  theme_bw()+
+  geom_label_repel(aes(label = Gene_name),size=2,label.size = 0.1,box.padding=0.5) + 
+  theme(legend.title=element_text(size=8),legend.text=element_text(size=6),
+        legend.key.size=unit(0.7,"line"),plot.title = element_text(hjust = 0.5),
+        axis.title.y=element_text(size=9),axis.title.x=element_text(size=9),
+        axis.text.y=element_text(size=7),axis.text.x=element_text(size=7)) +
+  labs(x="Log2 Fold Change",y="-log10 (Adj.pvalue)",title= name_ana)
+
+path_fig <- paste0("results/", name_ana, "/figures/", name_ana, "_volcano_plot.pdf")
+dev.copy(pdf,path_fig)
+dev.off()
+```
+
+```{r}
+
+### add column with significance ( up or down regulated)
+# create accession column 
+DF_top_table$Accession <- row.names(DF_top_table)
+
+# create empty column
+DF_top_table$Significant <- 0  
+
+# attribute up or down according to logFC
+DF_top_table <-within(DF_top_table, Significant<-ifelse(DF_top_table$logFC > 0, 
+                                                        "upregulated in KO", 
+                                                        "downregulated in KO"))
+
+```
+
+```{r}
+# add extra informations
+DF_top_table_2 <- merge(annotationInfo, DF_top_table, by = "Accession")
+
+path_results <- paste0("results/", name_ana, "/", 
+                       name_ana, "_Filt_DGE_table.txt")
+
+path_results_excel <- paste0("results/", name_ana,
+                             "/", name_ana, "_Filt_DGE_table.xlsx")
+
+write.table(DF_top_table_2, file = path_results, 
+            sep = "\t", row.names = TRUE, col.names = NA)
+
+write.xlsx(DF_top_table_2, file = path_results_excel,
+           sheetName = "Proteomics_DGE_Aging_mice_IPA_input", 
+           col.names = TRUE, row.names = FALSE, append = FALSE)
+
+```
+
+
+```{r}
+## c) clustering
+# get subset of genes differentially expressed 
+subset <- r_norm[rownames(r_norm) %in% DF_top_table_2$Accession,]
+```
+
+
+```{r}
+## save proteins abundance of significant proteins
+subset$Accession <- rownames(subset)
+subset <-merge(subset, annotationInfo, by = "Accession")
+subset <- subset[!duplicated(subset$Gene_name), ]
+rownames(subset) <- subset$Gene_name
+
+subset$Gene_name <- NULL
+subset$Accession <- NULL
+
+path_subset <- paste0("results/", name_ana, "/",
+                      name_ana, "_DGE_proteins_subset.txt")
+
+write.table(subset, file = path_subset, sep = ",", col.names = NA,
+            qmethod = "double")
+```
+
+```{r}
+subset$Gene_name <- rownames(subset)
+```
+
+
+```{r}
+organ_subset <- merge(DF_top_table_2, subset, by = "Gene_name")
+```
+
+```{r}
+organ_subset <- organ_subset[order(organ_subset$logFC),]
+rownames(organ_subset) <- organ_subset$Gene_name
+```
+
+```{r}
+hmcol <- colorRampPalette(brewer.pal(11,"PuOr"))(256)
+hmcol <- rev(hmcol)
+path_fig <- paste0("results/", name_ana, 
+                   "/figures/", name_ana, "clustering.pdf")
+pdf(path_fig, width=9, height=9)
+heatmap.2(as.matrix(organ_subset[,c(12:14,10:11)]),
+          scale="row",
+          Rowv = FALSE, #dont order
+          Colv = TRUE,
+          trace="none",
+          col = hmcol,
+          keysize = 2,
+          dendrogram = 'both',
+          ColSideColors = c(rep("#e67e22",3),rep("#f1c40f",2)),
+          labRow = FALSE
+          )
+dev.off()
+```
+
+,
+```{r}
+pdf("test.pdf")
+plot(cars)
+dev.off()
+```
+
+
